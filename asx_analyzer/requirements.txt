@@ -11,9 +11,14 @@ yfinance
 
 # CLI Tools
 click
+# feat/asx-analyzer-cli-phase2
+# For web UI (Phase 2)
+streamlit
+plotly
+=======
 
 # Web Framework (for UI)
-streamlit
+# streamlit
 # dash
 
 # Machine Learning (optional, for forecasting)

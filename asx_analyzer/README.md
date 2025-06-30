@@ -2,6 +2,29 @@
 
 This project aims to provide a trading analysis and recommendation system for ASX-listed stocks.
 
+## Features
+
+This system provides tools for analyzing ASX-listed stocks.
+
+**Core Functionality (accessible via CLI and Web UI):**
+*   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information.
+*   **Data Cleansing:** Applies cleansing to financial time series data.
+*   **Technical Analysis:** Calculates Simple Moving Averages (SMAs) and Relative Strength Index (RSI).
+*   **Forecasting:** Generates a simple 30-day momentum-based price forecast and expected return.
+*   **Backtesting:** Optionally backtests a trading strategy with a 30-day mandatory holding period.
+*   **Recommendation Engine:** Provides BUY/HOLD/SELL recommendations with confidence levels and supporting reasons.
+
+**Phase 1: Command Line Interface (CLI)**
+*   Detailed console output of analysis steps and results.
+*   Saves a static plot of price and indicators.
+
+**Phase 2: Web User Interface (Streamlit)**
+*   Interactive input controls for analysis parameters.
+*   Dynamic display of company information, analysis metrics, recommendations, and backtest results.
+*   Interactive charting of prices and indicators using Plotly.
+*   Light/Dark mode theme selection.
+*   Basic chatbot stub for ASX/trading questions.
+
 ## Features (Phase 1 - CLI)
 
 *   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information for a given ASX ticker and time window.
@@ -24,6 +47,13 @@ This project aims to provide a trading analysis and recommendation system for AS
     pip install -r requirements.txt
     ```
 
+The main entry point for the CLI is `asx_analyzer/src/main.py`. From the project root directory, you can run it using:
+
+```bash
+python -m asx_analyzer.src.main [OPTIONS]
+```
+
+**Basic CLI Example:**
 ## Usage (CLI)
 
 The main entry point for the CLI is `src/main.py`. You can run it using `python -m asx_analyzer.src.main [OPTIONS]`.
