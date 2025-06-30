@@ -1,36 +1,28 @@
 import pandas as pd
 import numpy as np
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def generate_recommendation(
     analysis_summary: Dict[str, Any],
-    forecast_price: float | None,
-    expected_return_pct: float | None,
-    backtest_results: Dict[str, Any] | None = None # Optional backtest results
+    forecast_details: Dict[str, Any], # Contains price, return, model type, and model-specifics
+    garch_vol_forecast: Optional[np.ndarray] = None, # Array of forecasted conditional std devs (not variances)
+    backtest_results: Optional[Dict[str, Any]] = None
 ) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Generates a trading recommendation based on analysis, forecast, and optional backtest results.
-
-    Args:
-        analysis_summary (Dict[str, Any]): From analysis_engine.get_analysis_summary().
-            Expected keys: 'last_close', 'short_sma', 'long_sma', 'rsi',
-                           'short_sma_col', 'long_sma_col', 'rsi_col'.
-        forecast_price (float | None): The 30-day forecasted price.
-        expected_return_pct (float | None): The 30-day expected return percentage.
-        backtest_results (Dict[str, Any] | None): Optional results from backtester.py.
-
-    Returns:
-        Tuple[str, str, Dict[str, Any]]:
-            - Recommendation string ("BUY", "HOLD", "SELL")
-            - Confidence level string ("High", "Medium", "Low")
-            - Supporting statistics dictionary
+    Generates a trading recommendation.
     """
-    recommendation = "HOLD" # Default
-    confidence = "Low"    # Default
+    recommendation = "HOLD"
+    confidence = "Low"
+
+    # Extract primary forecast values
+    forecast_price = forecast_details.get('forecasted_price')
+    expected_return_pct = forecast_details.get('expected_return_pct')
+    forecast_model_used = forecast_details.get('forecast_model_used', 'N/A')
+
     stats = {
         "last_close": analysis_summary.get('last_close'),
         "short_sma": analysis_summary.get('short_sma'),
@@ -39,12 +31,16 @@ def generate_recommendation(
         "short_sma_col": analysis_summary.get('short_sma_col'),
         "long_sma_col": analysis_summary.get('long_sma_col'),
         "rsi_col": analysis_summary.get('rsi_col'),
+        "forecast_model_used": forecast_model_used,
         "forecasted_price_30d": forecast_price,
         "expected_return_30d_pct": expected_return_pct,
-        "reasoning": []
+        "arima_order": forecast_details.get('arima_order') if forecast_model_used == 'arima' else None,
+        "arima_conf_int_30d": forecast_details.get('arima_conf_int') if forecast_model_used == 'arima' else None, # CI for the specific forecast point
+        "garch_forecasted_avg_std_dev": np.mean(garch_vol_forecast) if garch_vol_forecast is not None else None,
+        "reasoning": [],
+        "confidence_factors": {"base_bullish": 0, "base_bearish": 0, "base_neutral": 0, "confidence_adjustment": 0}
     }
 
-    # --- Input Validation & Condition Checks ---
     lc = stats["last_close"]
     ssma = stats["short_sma"]
     lsma = stats["long_sma"]
@@ -53,202 +49,173 @@ def generate_recommendation(
 
     if lc is None or pd.isna(lc):
         stats["reasoning"].append("Critical error: Last close price is missing.")
-        return "ERROR", "None", stats # Cannot make recommendation
+        return "ERROR", "None", stats
 
-    # Check if essential indicator values are present
-    bullish_signals = 0
-    bearish_signals = 0
-    neutral_signals = 0
+    bull = stats["confidence_factors"]["base_bullish"]
+    bear = stats["confidence_factors"]["base_bearish"]
+    neut = stats["confidence_factors"]["base_neutral"]
 
     # --- SMA Analysis ---
     if ssma is not None and lsma is not None and not pd.isna(ssma) and not pd.isna(lsma):
-        if ssma > lsma and lc > ssma: # Golden cross confirmation / price above short SMA
-            bullish_signals += 1
-            stats["reasoning"].append(f"Bullish: {stats['short_sma_col']} ({ssma:.2f}) is above {stats['long_sma_col']} ({lsma:.2f}) and price ({lc:.2f}) is above {stats['short_sma_col']}.")
-        elif ssma < lsma and lc < ssma: # Death cross confirmation / price below short SMA
-            bearish_signals += 1
-            stats["reasoning"].append(f"Bearish: {stats['short_sma_col']} ({ssma:.2f}) is below {stats['long_sma_col']} ({lsma:.2f}) and price ({lc:.2f}) is below {stats['short_sma_col']}.")
-        else:
-            neutral_signals += 1
-            stats["reasoning"].append(f"Neutral SMA: {stats['short_sma_col']} ({ssma:.2f}), {stats['long_sma_col']} ({lsma:.2f}), Price ({lc:.2f}). No clear crossover or price confirmation.")
+        price_above_short = lc > ssma if not pd.isna(lc) else False
+        price_above_long = lc > lsma if not pd.isna(lc) else False
+        short_above_long = ssma > lsma
+
+        if short_above_long and price_above_short: # Golden cross territory & price confirmation
+            bull += 1
+            stats["reasoning"].append(f"Bullish SMA: {stats['short_sma_col']} ({ssma:.2f}) > {stats['long_sma_col']} ({lsma:.2f}) and Price ({lc:.2f}) > {stats['short_sma_col']}.")
+        elif not short_above_long and not price_above_short : # Death cross territory & price confirmation
+            bear += 1
+            stats["reasoning"].append(f"Bearish SMA: {stats['short_sma_col']} ({ssma:.2f}) < {stats['long_sma_col']} ({lsma:.2f}) and Price ({lc:.2f}) < {stats['short_sma_col']}.")
+        else: # Mixed signals from SMAs / price position relative to them
+            neut += 1
+            stats["reasoning"].append(f"Neutral/Mixed SMA: Short ({ssma:.2f}), Long ({lsma:.2f}), Price ({lc:.2f}).")
     else:
-        neutral_signals += 1
-        stats["reasoning"].append("Neutral SMA: Insufficient data for full SMA analysis.")
+        neut += 1; stats["reasoning"].append("Neutral SMA: Insufficient data for full SMA analysis.")
 
     # --- RSI Analysis ---
     if rsi is not None and not pd.isna(rsi):
-        if rsi > 70:
-            # Overbought, could be bearish for new entry, or signal to take profit if already holding.
-            # For a new BUY decision, this is usually a cautious sign.
-            bearish_signals += 0.5 # Less strong than SMA death cross for a SELL, but caution for BUY
-            stats["reasoning"].append(f"Caution (RSI): RSI ({rsi:.2f}) is overbought (>70).")
-        elif rsi < 30:
-            # Oversold, could be bullish for contrarian entry.
-            bullish_signals += 0.5 # Less strong than SMA golden cross
-            stats["reasoning"].append(f"Potential (RSI): RSI ({rsi:.2f}) is oversold (<30).")
-        elif rsi > 50 and rsi <=70 : # Momentum is up
-             bullish_signals += 0.5
-             stats["reasoning"].append(f"Positive Momentum (RSI): RSI ({rsi:.2f}) is between 50 and 70.")
-        elif rsi < 50 and rsi >=30: # Momentum is down
-             bearish_signals += 0.5
-             stats["reasoning"].append(f"Negative Momentum (RSI): RSI ({rsi:.2f}) is between 30 and 50.")
-        else: # RSI is neutral (exactly 50)
-            neutral_signals += 1
-            stats["reasoning"].append(f"Neutral RSI: RSI ({rsi:.2f}) is neutral.")
+        if rsi > 70: bear += 0.5; stats["reasoning"].append(f"Caution (RSI): Overbought ({rsi:.2f} > 70).")
+        elif rsi < 30: bull += 0.5; stats["reasoning"].append(f"Potential (RSI): Oversold ({rsi:.2f} < 30).")
+        elif rsi > 55: bull += 0.25; stats["reasoning"].append(f"Positive Momentum (RSI): ({rsi:.2f}).") # Slight bullish tilt above 55
+        elif rsi < 45: bear += 0.25; stats["reasoning"].append(f"Negative Momentum (RSI): ({rsi:.2f}).") # Slight bearish tilt below 45
+        else: neut += 1; stats["reasoning"].append(f"Neutral RSI: ({rsi:.2f}).")
     else:
-        neutral_signals += 1
-        stats["reasoning"].append("Neutral RSI: Insufficient data for RSI analysis.")
+        neut += 1; stats["reasoning"].append("Neutral RSI: Insufficient data.")
 
-    # --- Forecast Analysis ---
-    if exp_ret is not None and not pd.isna(exp_ret):
-        if exp_ret > 5: # Arbitrary threshold for a decent expected return
-            bullish_signals += 1
-            stats["reasoning"].append(f"Bullish Forecast: Expected 30-day return is {exp_ret:.2f}%.")
-        elif exp_ret < -5: # Arbitrary threshold for poor expected return
-            bearish_signals += 1
-            stats["reasoning"].append(f"Bearish Forecast: Expected 30-day return is {exp_ret:.2f}%.")
+    # --- Forecast Analysis (Main Price Forecast) ---
+    if exp_ret is not None and not pd.isna(exp_ret) and forecast_price is not None:
+        if exp_ret > 7.5: # Increased threshold for stronger signal
+            bull += 1.5
+            stats["reasoning"].append(f"Strong Bullish Forecast ({forecast_model_used}): Exp. return {exp_ret:.2f}%.")
+        elif exp_ret > 2.5:
+            bull += 0.75
+            stats["reasoning"].append(f"Modest Bullish Forecast ({forecast_model_used}): Exp. return {exp_ret:.2f}%.")
+        elif exp_ret < -7.5:
+            bear += 1.5
+            stats["reasoning"].append(f"Strong Bearish Forecast ({forecast_model_used}): Exp. return {exp_ret:.2f}%.")
+        elif exp_ret < -2.5:
+            bear += 0.75
+            stats["reasoning"].append(f"Modest Bearish Forecast ({forecast_model_used}): Exp. return {exp_ret:.2f}%.")
         else:
-            neutral_signals += 1
-            stats["reasoning"].append(f"Neutral Forecast: Expected 30-day return ({exp_ret:.2f}%) is marginal.")
-    else:
-        neutral_signals += 1
-        stats["reasoning"].append("Neutral Forecast: Forecast data unavailable.")
+            neut += 1
+            stats["reasoning"].append(f"Neutral Forecast ({forecast_model_used}): Exp. return ({exp_ret:.2f}%) is marginal.")
 
-    # --- Backtest Consideration (Simple) ---
-    # This is a very basic way to incorporate backtest results.
-    # A more advanced system might use specific backtest metrics.
+        # ARIMA Confidence Interval Check (if applicable)
+        if forecast_model_used == 'arima' and stats["arima_conf_int_30d"] and forecast_price > 0:
+            ci_lower, ci_upper = stats["arima_conf_int_30d"]
+            ci_width_pct = ((ci_upper - ci_lower) / forecast_price) * 100 if forecast_price != 0 else float('inf')
+            stats["arima_ci_width_pct_30d"] = ci_width_pct
+            if ci_width_pct > 30: # If CI is very wide (e.g., >30% of forecast price)
+                stats["reasoning"].append(f"High Uncertainty (ARIMA): Wide 95% CI ({ci_width_pct:.1f}%) for 30d forecast.")
+                stats["confidence_factors"]["confidence_adjustment"] -= 0.5 # Reduce confidence score
+            elif ci_width_pct < 10: # If CI is narrow
+                 stats["reasoning"].append(f"Higher Certainty (ARIMA): Narrow 95% CI ({ci_width_pct:.1f}%) for 30d forecast.")
+                 stats["confidence_factors"]["confidence_adjustment"] += 0.25
+
+
+    else: # Forecast data N/A
+        neut += 1; stats["reasoning"].append("Neutral Forecast: Forecast data unavailable or invalid.")
+
+    # --- GARCH Volatility Consideration ---
+    if stats["garch_forecasted_avg_std_dev"] is not None:
+        # Assuming garch_vol_forecast is daily std dev. Annualize for context (approx * sqrt(252))
+        # This threshold is arbitrary and needs calibration.
+        annualized_garch_std_dev = stats["garch_forecasted_avg_std_dev"] * np.sqrt(252/100) # /100 because returns were scaled by 100
+        stats["garch_annualized_std_dev_pct"] = annualized_garch_std_dev
+        if annualized_garch_std_dev > 40: # e.g. >40% annualized volatility is high
+            stats["reasoning"].append(f"High Volatility Warning (GARCH): Forecasted avg. annualized std dev is {annualized_garch_std_dev:.2f}%.")
+            stats["confidence_factors"]["confidence_adjustment"] -= 0.75 # Significant confidence reduction
+        elif annualized_garch_std_dev < 15: # Low vol
+            stats["reasoning"].append(f"Low Volatility Indication (GARCH): Forecasted avg. annualized std dev is {annualized_garch_std_dev:.2f}%.")
+            stats["confidence_factors"]["confidence_adjustment"] += 0.25
+
+
+    # --- Backtest Consideration ---
     if backtest_results:
         stats["backtest_overall_return_pct"] = backtest_results.get("total_return_percentage")
         stats["backtest_win_rate_pct"] = backtest_results.get("win_rate_percentage")
         if backtest_results.get("total_return_percentage", 0) > 10 and backtest_results.get("win_rate_percentage", 0) > 50:
-            bullish_signals += 0.5 # Small bonus if backtest was generally good
-            stats["reasoning"].append("Positive Backtest Indication: Overall strategy performance was good.")
+            bull += 0.5; stats["reasoning"].append("Supportive Backtest: Strategy showed positive historical performance.")
         elif backtest_results.get("total_return_percentage", 0) < -5:
-            bearish_signals += 0.5
-            stats["reasoning"].append("Negative Backtest Indication: Overall strategy performance was poor.")
+            bear += 0.5; stats["reasoning"].append("Cautionary Backtest: Strategy showed poor historical performance.")
 
+    stats["confidence_factors"]["base_bullish"] = bull
+    stats["confidence_factors"]["base_bearish"] = bear
+    stats["confidence_factors"]["base_neutral"] = neut
 
     # --- Determine Recommendation ---
-    if bullish_signals > bearish_signals + 0.5: # Need a clear margin for BUY
-        recommendation = "BUY"
-        if bullish_signals >= 2.5: # e.g. SMA good, Forecast good, RSI supportive/good backtest
-            confidence = "High"
-        elif bullish_signals >= 1.5:
-            confidence = "Medium"
-        else:
-            confidence = "Low"
+    net_signal_score = bull - bear
 
-    elif bearish_signals > bullish_signals + 0.5: # Clear margin for SELL
-        # For this tool, "SELL" mainly applies if one were hypothetically holding.
-        # Or, as a strong signal not to buy.
-        recommendation = "SELL" # Could also be "AVOID"
-        if bearish_signals >= 2.5:
-            confidence = "High"
-        elif bearish_signals >= 1.5:
-            confidence = "Medium"
-        else:
-            confidence = "Low"
-    else: # Neutral or mixed signals
-        recommendation = "HOLD"
-        if neutral_signals >= 2 and bullish_signals < 1.5 and bearish_signals < 1.5 : # Many neutral signals and no strong bias
-            confidence = "Medium"
-        else: # Generally low confidence if signals are very mixed or weak
-            confidence = "Low"
+    if net_signal_score >= 1.5: recommendation = "BUY"
+    elif net_signal_score <= -1.5: recommendation = "SELL"
+    else: recommendation = "HOLD"
+
+    # --- Determine Confidence ---
+    total_signals_strength = abs(net_signal_score) + stats["confidence_factors"]["confidence_adjustment"]
+
+    if total_signals_strength >= 2.5 : confidence = "High"
+    elif total_signals_strength >= 1.25 : confidence = "Medium"
+    else: confidence = "Low"
+
+    # If overall signal is weak, but volatility is high, confidence should be low for action signals
+    if recommendation != "HOLD" and stats.get("garch_annualized_std_dev_pct", 0) > 40 and confidence == "High":
+        confidence = "Medium" # Downgrade due to high vol
 
     stats["final_recommendation"] = recommendation
     stats["confidence_level"] = confidence
-    logging.info(f"Recommendation for {stats.get('ticker', 'N/A')}: {recommendation} ({confidence}). Bull: {bullish_signals}, Bear: {bearish_signals}, Neut: {neutral_signals}")
+    logging.info(f"Recommender: Final Score {net_signal_score:.2f}, Bull: {bull:.2f}, Bear: {bear:.2f}, Neut: {neut:.2f}, Conf Adj: {stats['confidence_factors']['confidence_adjustment']:.2f} => {recommendation} ({confidence})")
     return recommendation, confidence, stats
 
 
 if __name__ == '__main__':
-    print("--- Testing Recommender ---")
+    print("--- Testing Recommender with Advanced Model Inputs ---")
 
-    # Test Case 1: Strong Buy
-    print("\nTest Case 1: Strong Buy")
-    summary1 = {
-        'last_close': 100.0, 'short_sma': 105.0, 'long_sma': 100.0, 'rsi': 60.0,
+    # Base summary
+    analysis_summary_base = {
+        'last_close': 100.0, 'short_sma': 102.0, 'long_sma': 98.0, 'rsi': 60.0, # Bullish TA
         'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    } # Price above short SMA, short SMA above long SMA
-    forecast_p1 = 115.0
-    exp_ret1 = 15.0 # Strong positive return
-    backtest_res1 = {"total_return_percentage": 20.0, "win_rate_percentage": 60.0}
-    rec1, conf1, stats1 = generate_recommendation(summary1, forecast_p1, exp_ret1, backtest_res1)
+    }
+
+    # Test Case 1: Strong Buy with ARIMA (narrow CI) and Low GARCH
+    print("\nTest Case 1: Strong Buy, ARIMA (Narrow CI), Low GARCH")
+    forecast_details_1 = {
+        'forecast_model_used': 'arima', 'forecasted_price': 115.0, 'expected_return_pct': 15.0,
+        'arima_order': '(1,1,1)', 'arima_conf_int': [112.0, 118.0] # Narrow CI
+    }
+    garch_low_1 = np.array([0.1, 0.12, 0.11]) * (100/np.sqrt(252)) # Low daily std dev (scaled for internal calc)
+    rec1, conf1, stats1 = generate_recommendation(analysis_summary_base, forecast_details_1, garch_vol_forecast=garch_low_1)
     print(f"Rec: {rec1}, Conf: {conf1}")
-    # for r in stats1["reasoning"]: print(f"  - {r}")
-    # print(f"  Stats: {stats1}")
+    print(f"  Reasoning: {stats1['reasoning']}")
+    print(f"  Conf Factors: {stats1['confidence_factors']}")
 
 
-    # Test Case 2: Strong Sell / Avoid
-    print("\nTest Case 2: Strong Sell/Avoid")
-    summary2 = {
-        'last_close': 90.0, 'short_sma': 88.0, 'long_sma': 92.0, 'rsi': 35.0,
+    # Test Case 2: Buy, but ARIMA (wide CI) and High GARCH
+    print("\nTest Case 2: Buy, ARIMA (Wide CI), High GARCH")
+    forecast_details_2 = {
+        'forecast_model_used': 'arima', 'forecasted_price': 110.0, 'expected_return_pct': 10.0,
+        'arima_order': '(1,1,1)', 'arima_conf_int': [95.0, 125.0] # Wide CI (30 / 110 ~ 27%)
+    }
+    # High daily std dev (e.g. 2% daily -> ~31% annualized)
+    garch_high_2 = np.array([2.5, 2.6, 2.4]) * (100/np.sqrt(252)) # High daily std dev (scaled for internal calc)
+    rec2, conf2, stats2 = generate_recommendation(analysis_summary_base, forecast_details_2, garch_vol_forecast=garch_high_2)
+    print(f"Rec: {rec2}, Conf: {conf2}") # Expect confidence to be lowered
+    print(f"  Reasoning: {stats2['reasoning']}")
+    print(f"  Conf Factors: {stats2['confidence_factors']}")
+
+
+    # Test Case 3: LSTM forecast, neutral other signals
+    print("\nTest Case 3: LSTM forecast, Neutral TA, No GARCH")
+    analysis_summary_neutral_ta = {
+        'last_close': 100.0, 'short_sma': 100.0, 'long_sma': 100.0, 'rsi': 50.0,
         'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    } # Price below short SMA, short SMA below long SMA
-    forecast_p2 = 80.0
-    exp_ret2 = -11.11 # Strong negative return
-    rec2, conf2, stats2 = generate_recommendation(summary2, forecast_p2, exp_ret2)
-    print(f"Rec: {rec2}, Conf: {conf2}")
-    # for r in stats2["reasoning"]: print(f"  - {r}")
-
-    # Test Case 3: Hold / Neutral
-    print("\nTest Case 3: Hold / Neutral")
-    summary3 = {
-        'last_close': 100.0, 'short_sma': 99.0, 'long_sma': 101.0, 'rsi': 52.0,
-        'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    } # Mixed SMA
-    forecast_p3 = 101.0
-    exp_ret3 = 1.0 # Marginal return
-    rec3, conf3, stats3 = generate_recommendation(summary3, forecast_p3, exp_ret3)
+    }
+    forecast_details_3 = {
+        'forecast_model_used': 'lstm', 'forecasted_price': 108.0, 'expected_return_pct': 8.0,
+    }
+    rec3, conf3, stats3 = generate_recommendation(analysis_summary_neutral_ta, forecast_details_3, garch_vol_forecast=None)
     print(f"Rec: {rec3}, Conf: {conf3}")
-    # for r in stats3["reasoning"]: print(f"  - {r}")
-
-    # Test Case 4: RSI Overbought, but other signals bullish (Buy with caution)
-    print("\nTest Case 4: RSI Overbought, but bullish SMA and Forecast")
-    summary4 = {
-        'last_close': 110.0, 'short_sma': 108.0, 'long_sma': 100.0, 'rsi': 75.0, # RSI overbought
-        'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    }
-    forecast_p4 = 120.0
-    exp_ret4 = 9.09 # Good return
-    rec4, conf4, stats4 = generate_recommendation(summary4, forecast_p4, exp_ret4)
-    print(f"Rec: {rec4}, Conf: {conf4}") # Expect BUY but maybe Medium/Low confidence due to RSI
-    # for r in stats4["reasoning"]: print(f"  - {r}")
-
-    # Test Case 5: Missing some indicator data
-    print("\nTest Case 5: Missing Long SMA")
-    summary5 = {
-        'last_close': 100.0, 'short_sma': 102.0, 'long_sma': None, 'rsi': 55.0, # Missing long SMA
-        'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    }
-    forecast_p5 = 105.0
-    exp_ret5 = 5.0
-    rec5, conf5, stats5 = generate_recommendation(summary5, forecast_p5, exp_ret5)
-    print(f"Rec: {rec5}, Conf: {conf5}")
-    # for r in stats5["reasoning"]: print(f"  - {r}")
-
-    # Test Case 6: Missing forecast data
-    print("\nTest Case 6: Missing forecast")
-    summary6 = {
-        'last_close': 100.0, 'short_sma': 102.0, 'long_sma': 98.0, 'rsi': 60.0,
-        'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    }
-    forecast_p6 = None
-    exp_ret6 = None
-    rec6, conf6, stats6 = generate_recommendation(summary6, forecast_p6, exp_ret6)
-    print(f"Rec: {rec6}, Conf: {conf6}")
-
-    # Test Case 7: Critical missing last_close
-    print("\nTest Case 7: Missing last_close")
-    summary7 = {
-        'last_close': None, 'short_sma': 102.0, 'long_sma': 98.0, 'rsi': 60.0,
-        'short_sma_col': 'SMA_10', 'long_sma_col': 'SMA_20', 'rsi_col': 'RSI_14'
-    }
-    forecast_p7 = 100.0
-    exp_ret7 = 0.0
-    rec7, conf7, stats7 = generate_recommendation(summary7, forecast_p7, exp_ret7)
-    print(f"Rec: {rec7}, Conf: {conf7}")
-    print(f"  Reason: {stats7['reasoning']}")
-
+    print(f"  Reasoning: {stats3['reasoning']}")
+    print(f"  Conf Factors: {stats3['confidence_factors']}")
 
     print("\n--- Recommender Module Test Complete ---")

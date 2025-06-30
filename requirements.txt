@@ -1,0 +1,21 @@
+# Core Libraries
+pandas
+numpy
+scipy
+matplotlib
+seaborn
+
+# Data Acquisition
+yfinance
+
+# Web Framework (for UI)
+streamlit
+
+# Machine Learning (optional, for forecasting)
+# scikit-learn
+
+# Time Series Analysis (optional, for forecasting)
+# statsmodels
+
+# Testing
+pytest

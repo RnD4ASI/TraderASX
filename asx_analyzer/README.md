@@ -7,32 +7,33 @@ This project aims to provide a trading analysis and recommendation system for AS
 This system provides tools for analyzing ASX-listed stocks.
 
 **Core Functionality (accessible via CLI and Web UI):**
-*   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information.
-*   **Data Cleansing:** Applies cleansing to financial time series data.
+*   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information (`yfinance`).
+*   **Data Cleansing:** Standard preprocessing for time series data.
 *   **Technical Analysis:** Calculates Simple Moving Averages (SMAs) and Relative Strength Index (RSI).
-*   **Forecasting:** Generates a simple 30-day momentum-based price forecast and expected return.
-*   **Backtesting:** Optionally backtests a trading strategy with a 30-day mandatory holding period.
-*   **Recommendation Engine:** Provides BUY/HOLD/SELL recommendations with confidence levels and supporting reasons.
+*   **Price Forecasting (User Selectable Models):**
+    *   Simple Momentum-based forecast.
+    *   ARIMA (Autoregressive Integrated Moving Average) using `pmdarima` for auto-parameter selection.
+    *   LSTM (Long Short-Term Memory) neural network, using pre-trained models per ticker (training via `lstm_model_trainer.py`).
+    *   All models provide a 30-day equivalent price forecast and expected return.
+*   **Volatility Forecasting (Optional):**
+    *   GARCH (Generalized Autoregressive Conditional Heteroskedasticity) model using `arch` to forecast conditional volatility.
+*   **Backtesting:** Optionally backtests a simple SMA/RSI based trading strategy with a 30-day mandatory holding period.
+*   **Recommendation Engine:** Provides BUY/HOLD/SELL recommendations. Confidence levels are influenced by technical signals, selected price forecast (including ARIMA CI width), and GARCH volatility forecast.
 
 **Phase 1: Command Line Interface (CLI)**
 *   Detailed console output of analysis steps and results.
 *   Saves a static plot of price and indicators.
 
 **Phase 2: Web User Interface (Streamlit)**
-*   Interactive input controls for analysis parameters.
+*   Interactive input controls for analysis parameters, including selection of price forecast models (Simple, ARIMA, LSTM) and GARCH options.
 *   Dynamic display of company information, analysis metrics, recommendations, and backtest results.
-*   Interactive charting of prices and indicators using Plotly.
+*   Interactive charting of prices, indicators (Plotly), and optionally LSTM forecast sequence or GARCH volatility.
 *   Light/Dark mode theme selection.
 *   Basic chatbot stub for ASX/trading questions.
 
-## Features (Phase 1 - CLI)
-
-*   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information for a given ASX ticker and time window.
-*   **Data Cleansing:** Applies basic cleansing to financial time series data.
-*   **Analysis and Forecasting:** Performs technical analysis (Moving Averages, RSI) and simple 30-day forecasting.
-*   **Backtesting:** Optionally backtests trading strategies based on a 30-day holding period.
-*   **Recommendation:** Provides BUY/HOLD/SELL recommendations with supporting statistics.
-*   **Visualization:** Generates a basic plot of historical prices with indicators.
+**Phase 3: Advanced Modeling (Ongoing)**
+*   Integration of ARIMA, GARCH, and LSTM models into the analysis pipeline.
+*   Refinement of the recommendation engine to consider outputs from these advanced models.
 
 ## Setup
 
@@ -54,11 +55,6 @@ python -m asx_analyzer.src.main [OPTIONS]
 ```
 
 **Basic CLI Example:**
-## Usage (CLI)
-
-The main entry point for the CLI is `src/main.py`. You can run it using `python -m asx_analyzer.src.main [OPTIONS]`.
-
-**Basic Example:**
 
 ```bash
 python -m asx_analyzer.src.main --ticker "BHP.AX" --period "1y" --interval "daily"
