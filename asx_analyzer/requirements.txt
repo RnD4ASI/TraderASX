@@ -1,14 +1,26 @@
-yfinance
+# Core Libraries
 pandas
 numpy
+scipy
 matplotlib
+seaborn
 python-dateutil
-# For CLI argument parsing (Phase 1)
+
+# Data Acquisition
+yfinance
+
+# CLI Tools
 click
-# For potential future web UI (Phase 2 - good to list early)
-# streamlit
+
+# Web Framework (for UI)
+streamlit
 # dash
-# For potential future advanced analysis
-# scipy
-# statsmodels
+
+# Machine Learning (optional, for forecasting)
 # scikit-learn
+
+# Time Series Analysis (optional, for forecasting)
+# statsmodels
+
+# Testing
+pytest
