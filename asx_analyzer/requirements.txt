@@ -1,0 +1,14 @@
+yfinance
+pandas
+numpy
+matplotlib
+python-dateutil
+# For CLI argument parsing (Phase 1)
+click
+# For potential future web UI (Phase 2 - good to list early)
+# streamlit
+# dash
+# For potential future advanced analysis
+# scipy
+# statsmodels
+# scikit-learn
