@@ -5,10 +5,7 @@ matplotlib
 python-dateutil
 # For CLI argument parsing (Phase 1)
 click
+# feat/asx-analyzer-cli-phase2
 # For web UI (Phase 2)
 streamlit
 plotly
-# For potential future advanced analysis
-# scipy
-# statsmodels
-# scikit-learn

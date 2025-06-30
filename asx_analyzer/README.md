@@ -25,6 +25,15 @@ This system provides tools for analyzing ASX-listed stocks.
 *   Light/Dark mode theme selection.
 *   Basic chatbot stub for ASX/trading questions.
 
+## Features (Phase 1 - CLI)
+
+*   **Data Crawling:** Extracts historical stock prices (OHLCV) and company financial information for a given ASX ticker and time window.
+*   **Data Cleansing:** Applies basic cleansing to financial time series data.
+*   **Analysis and Forecasting:** Performs technical analysis (Moving Averages, RSI) and simple 30-day forecasting.
+*   **Backtesting:** Optionally backtests trading strategies based on a 30-day holding period.
+*   **Recommendation:** Provides BUY/HOLD/SELL recommendations with supporting statistics.
+*   **Visualization:** Generates a basic plot of historical prices with indicators.
+
 ## Setup
 
 1.  Clone the repository.
@@ -45,6 +54,11 @@ python -m asx_analyzer.src.main [OPTIONS]
 ```
 
 **Basic CLI Example:**
+## Usage (CLI)
+
+The main entry point for the CLI is `src/main.py`. You can run it using `python -m asx_analyzer.src.main [OPTIONS]`.
+
+**Basic Example:**
 
 ```bash
 python -m asx_analyzer.src.main --ticker "BHP.AX" --period "1y" --interval "daily"
