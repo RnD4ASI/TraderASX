@@ -45,16 +45,63 @@ The following technical indicators are calculated on the cleansed 'Close' price:
 
 ## 4. Forecasting (30-Day Holding Period) (`analysis_engine.py`)
 
-A simple heuristic forecast is generated to estimate the price approximately 30 calendar days into the future, considering the mandatory holding period.
+The system supports multiple models for forecasting the price approximately 30 calendar days into the future (21 trading days for daily data, 4 periods for weekly data). The user can select the desired model via the UI.
 
-*   **Method:** Momentum-based.
-    *   Calculates the average price change per period (daily or weekly based on interval) over a recent lookback window. The lookback window is set to twice the forecast horizon (e.g., for a 30-day daily forecast of ~21 trading days, lookback is ~42 trading days).
-    *   Projects the last close price forward by this average change multiplied by the number of trading periods in ~30 calendar days (21 for daily, 4 for weekly).
-*   **Fallback:** If data is insufficient for the primary momentum calculation, it attempts to use the single last period's change. If that also fails, no forecast is made.
-*   **Expected Return:** Calculated as `((Forecasted Price - Last Close Price) / Last Close Price) * 100%`.
-*   **Limitations:** This is a very basic linear extrapolation and does not account for market volatility, news events, or non-linear price dynamics. It serves as one of several inputs to the recommendation.
+### 4.1. Simple Momentum Forecast
+*   **Method:** This is a basic heuristic model.
+    *   Calculates the average price change per period (daily or weekly) over a recent lookback window (typically twice the forecast horizon, e.g., ~42 trading days for a 30-calendar-day daily forecast).
+    *   Projects the last close price forward by this average change multiplied by the number of trading periods equivalent to 30 calendar days.
+*   **Fallback:** If data is insufficient, it uses the last single period's change or defaults to no change.
+*   **Output:** Forecasted price point.
 
-## 5. Backtesting (`backtester.py`)
+### 4.2. ARIMA (Autoregressive Integrated Moving Average) Forecast
+*   **Library:** `pmdarima` (for `auto_arima`) and `statsmodels`.
+*   **Methodology:**
+    *   The `auto_arima` function is used to automatically find the optimal (p,d,q)(P,D,Q,m) parameters for the ARIMA model based on the AIC (Akaike Information Criterion).
+    *   It internally handles stationarity testing (ADF test) and differencing (`d`, `D` parameters) to make the series stationary before fitting.
+    *   Seasonality can be optionally enabled (though `m`, the seasonal period, needs careful selection based on data characteristics; UI provides a basic toggle).
+*   **Output:**
+    *   Forecasted price point for the end of the 30-day equivalent period.
+    *   95% confidence interval for the forecast point.
+    *   The determined ARIMA order (e.g., (1,1,1)).
+*   **Considerations:** Requires sufficient data points (typically 20+ after differencing) for `auto_arima` to work effectively. Performance can vary based on how well the time series fits ARIMA assumptions.
+
+### 4.3. LSTM (Long Short-Term Memory) Forecast
+*   **Library:** `TensorFlow/Keras`.
+*   **Methodology:**
+    *   Relies on **pre-trained models**. A separate script (`lstm_model_trainer.py`) is provided for training an LSTM model for a specific ticker and saving it (along with its data scaler). Training involves:
+        *   Scaling 'Close' prices (e.g., `MinMaxScaler`).
+        *   Creating sequences of historical data (e.g., using last 60 periods to predict the next).
+        *   A simple LSTM architecture (e.g., 2 LSTM layers, Dropout, Dense layers).
+        *   Training on historical data, saving the `.keras` model and scaler.
+    *   For forecasting within the application:
+        *   The pre-trained model and scaler for the selected ticker are loaded.
+        *   The latest sequence of data is prepared and scaled.
+        *   The model iteratively predicts one step at a time for the required number of future periods (equivalent to 30 calendar days).
+        *   Predictions are inverse-scaled to original price levels.
+*   **Output:**
+    *   Forecasted price point for the end of the 30-day equivalent period (the last point in the forecasted sequence).
+    *   The full sequence of forecasted values (can be plotted).
+*   **Considerations:**
+    *   Performance is highly dependent on the quality of the pre-trained model, the amount of data used for training, and hyperparameter tuning.
+    *   If a pre-trained model for the ticker is not found in the `models/` directory, the LSTM forecast will fail.
+    *   Training LSTM models is computationally intensive and is a separate offline process.
+
+### 4.4. Expected Return Calculation
+For all forecast models, the expected return is calculated as:
+`((Forecasted Price at T+30days - Last Close Price) / Last Close Price) * 100%`.
+
+## 5. GARCH Volatility Forecasting (`analysis_engine.py`)
+*   **Purpose:** To model and forecast the conditional volatility of the stock's returns, indicating expected future price fluctuations. This is separate from price forecasting.
+*   **Library:** `arch`.
+*   **Methodology:**
+    *   Calculates logarithmic returns of the 'Close' prices (typically scaled by 100).
+    *   Fits a GARCH(p,q) model (default GARCH(1,1)) to these returns. User can configure p,q via UI.
+    *   Forecasts the conditional variance for the next N periods (matching the 30-day price forecast horizon).
+*   **Output:** An array of forecasted conditional variances. The application then typically displays the square root (conditional standard deviation).
+*   **Usage in System:** The forecasted volatility is primarily informational. It's used in the `recommender` to potentially adjust the confidence level of BUY/SELL recommendations (e.g., high forecasted volatility might reduce confidence).
+
+## 6. Backtesting (`backtester.py`)
 
 *   **Objective:** To evaluate the historical performance of a defined trading strategy incorporating the 30-calendar-day mandatory holding period.
 *   **Default Strategy (`simple_sma_rsi_strategy`):**
@@ -80,25 +127,6 @@ A simple heuristic forecast is generated to estimate the price approximately 30 
     *   Average Gain Percentage (for profitable trades).
     *   Average Loss Percentage (for losing trades).
 
-## 6. Recommendation Logic (`recommender.py`)
-
-The final recommendation (BUY, HOLD, SELL) and confidence level (High, Medium, Low) are determined by a rule-based system that weighs signals from SMAs, RSI, the 30-day forecast, and optionally, overall backtest performance.
-
-*   **Signal Aggregation:**
-    *   **SMA:** Bullish if price is above short SMA, and short SMA is above long SMA. Bearish if price is below short SMA, and short SMA is below long SMA. Otherwise neutral.
-    *   **RSI:** Bullish if <30 (oversold) or (50 < RSI <= 70, positive momentum). Bearish if >70 (overbought for new buys) or (30 <= RSI < 50, negative momentum).
-    *   **Forecast:** Bullish if expected 30-day return > 5%. Bearish if < -5%. Otherwise neutral.
-    *   **Backtest (Optional):** A small bullish weight if overall backtest return > 10% and win rate > 50%. A small bearish weight if return < -5%.
-*   **Decision Rules:**
-    *   **BUY:** Awarded if bullish signals significantly outweigh bearish signals.
-    *   **SELL:** Awarded if bearish signals significantly outweigh bullish signals (primarily as an indicator to avoid buying or if one hypothetically holds the stock).
-    *   **HOLD:** Default if signals are mixed or neutral.
-*   **Confidence Level:**
-    *   **High:** Strong agreement among multiple bullish/bearish indicators.
-    *   **Medium:** Some alignment, but not all signals are strong or in perfect agreement.
-    *   **Low:** Mixed, weak, or contradictory signals.
-*   **Output:** The recommendation, confidence, and a list of reasoning points contributing to the decision are provided.
-
-## Disclaimer
+The methodologies described are based on common technical analysis techniques and simplified forecasting models. They do not guarantee future performance. Financial markets are complex and subject to various unpredictable factors. This system is intended for educational and informational purposes and should not be considered financial advice. Always conduct your own research and consult with a qualified financial advisor before making investment decisions.
 
 The methodologies described are based on common technical analysis techniques and simplified forecasting models. They do not guarantee future performance. Financial markets are complex and subject to various unpredictable factors. This system is intended for educational and informational purposes and should not be considered financial advice. Always conduct your own research and consult with a qualified financial advisor before making investment decisions.

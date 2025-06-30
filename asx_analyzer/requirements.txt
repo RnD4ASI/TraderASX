@@ -1,31 +1,17 @@
-# Core Libraries
+yfinance
 pandas
 numpy
-scipy
 matplotlib
-seaborn
 python-dateutil
-
-# Data Acquisition
-yfinance
-
-# CLI Tools
+# For CLI argument parsing (Phase 1)
 click
-# feat/asx-analyzer-cli-phase2
 # For web UI (Phase 2)
 streamlit
 plotly
-=======
-
-# Web Framework (for UI)
-# streamlit
-# dash
-
-# Machine Learning (optional, for forecasting)
-# scikit-learn
-
-# Time Series Analysis (optional, for forecasting)
-# statsmodels
-
-# Testing
-pytest
+# For advanced analysis (Phase 3)
+statsmodels
+pmdarima
+arch
+tensorflow
+# scipy # Often a dependency of the above, but can be explicit if needed
+# scikit-learn # For other ML models or utilities
