@@ -35,10 +35,10 @@ It's highly recommended to use a virtual environment to manage project dependenc
         ```bash
         source venv/bin/activate
         ```
-    *   On Windows:
-        ```bash
-        venv\Scripts\activate
-        ```
+    *   On Windows (the command depends on your shell):
+        - **Command Prompt:** `venv\Scripts\activate`
+        - **PowerShell:** `venv\Scripts\Activate.ps1`
+        - **Git Bash:** `source venv/Scripts/activate`
     Your terminal prompt should change to indicate that the virtual environment is active (e.g., `(venv) Your-Computer:...`).
 
 ### Step 2.3: Install Dependencies
