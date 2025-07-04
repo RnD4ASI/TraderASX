@@ -8,7 +8,7 @@ import matplotlib.dates as mdates
 # Import module functions
 from .data_crawler import get_historical_prices, get_company_info, save_data_to_csv, save_info_to_json, RAW_DATA_DIR
 from .data_cleanser import load_price_data_from_csv, cleanse_price_data, save_cleansed_data, PROCESSED_DATA_DIR
-from .analysis_engine import add_technical_indicators, simple_forecast_30_day, get_analysis_summary
+from .analysis_engine import add_technical_indicators, get_analysis_summary, get_forecast_and_return # Updated import
 from .backtester import run_backtest, simple_sma_rsi_strategy # Assuming default strategy for now
 from .recommender import generate_recommendation
 
@@ -66,9 +66,12 @@ def parse_period_to_dates(period: str | None, start_date_str: str | None, end_da
 @click.option('--long-sma', type=int, default=None, help="Long SMA window (default: 200d/40w).")
 @click.option('--rsi-window', type=int, default=14, help="RSI window (default: 14).")
 @click.option('--initial-capital', type=float, default=10000, help="Initial capital for backtesting.")
+@click.option('--forecast-model', type=click.Choice(['simple', 'arima', 'lstm']), default='simple', help="Forecast model to use.")
+@click.option('--arima-seasonal', is_flag=True, help="Enable seasonality for ARIMA model (if selected).")
 def main_cli(ticker: str, period: str | None, start_date: str | None, end_date: str | None,
              interval: str, run_backtest_flag: bool, # Parameter name matches dest
-             short_sma: int | None, long_sma: int | None, rsi_window: int, initial_capital: float):
+             short_sma: int | None, long_sma: int | None, rsi_window: int, initial_capital: float,
+             forecast_model: str, arima_seasonal: bool):
     """
     ASX Trading Analysis and Recommendation System CLI.
     """
@@ -151,12 +154,31 @@ def main_cli(ticker: str, period: str | None, start_date: str | None, end_date: 
     click.echo(f"  {analysis_summary.get('long_sma_col', 'Long SMA')}: {analysis_summary.get('long_sma'):.2f}" if analysis_summary.get('long_sma') is not None else f"  {analysis_summary.get('long_sma_col', 'Long SMA')}: N/A")
     click.echo(f"  {analysis_summary.get('rsi_col', 'RSI')}: {analysis_summary.get('rsi'):.2f}" if analysis_summary.get('rsi') is not None else f"  {analysis_summary.get('rsi_col', 'RSI')}: N/A")
 
-    forecast_price, expected_return = simple_forecast_30_day(df_with_indicators, interval_code)
-    if forecast_price is not None and expected_return is not None:
-        click.echo(f"  30-Day Forecasted Price: {forecast_price:.2f}")
-        click.echo(f"  30-Day Expected Return: {expected_return:.2f}%")
+    # Use the new get_forecast_and_return
+    click.echo(f"Using forecast model: {forecast_model}")
+    forecast_details = get_forecast_and_return(
+        df_with_indicators=df_with_indicators.copy(), # Pass the dataframe with indicators
+        ticker_symbol=ticker,
+        interval=interval_code,
+        model_type=forecast_model,
+        seasonal_arima=arima_seasonal if forecast_model == 'arima' else False
+    )
+
+    if forecast_details.get('error'):
+        click.secho(f"  Forecast Error ({forecast_details.get('forecast_model_used')}): {forecast_details['error']}", fg="yellow")
+        # Set forecast_price and expected_return to None or some indicator that they failed
+        forecast_price_for_recommender = None
+        expected_return_for_recommender = None
     else:
-        click.echo("  30-Day Forecast: Could not be generated (likely insufficient data).")
+        forecast_price_for_recommender = forecast_details.get('forecasted_price')
+        expected_return_for_recommender = forecast_details.get('expected_return_pct')
+        click.echo(f"  30-Day Forecasted Price ({forecast_details.get('forecast_model_used')}): {forecast_price_for_recommender:.2f}" if forecast_price_for_recommender is not None else "  30-Day Forecasted Price: N/A")
+        click.echo(f"  30-Day Expected Return ({forecast_details.get('forecast_model_used')}): {expected_return_for_recommender:.2f}%" if expected_return_for_recommender is not None else "  30-Day Expected Return: N/A")
+        if forecast_model == 'arima' and forecast_details.get('arima_order'):
+            click.echo(f"  ARIMA Order: {forecast_details['arima_order']}")
+        if forecast_model == 'lstm' and forecast_details.get('forecast_sequence') is not None:
+            click.echo(f"  LSTM forecast sequence generated ({len(forecast_details['forecast_sequence'])} periods).")
+
 
     # 5. Backtesting (Optional)
     backtest_results_data = None
@@ -194,8 +216,12 @@ def main_cli(ticker: str, period: str | None, start_date: str | None, end_date: 
 
     # 6. Recommendation
     click.echo("\n--- Step 5: Recommendation ---")
+    # Pass the full forecast_details dictionary to the recommender
     recommendation, confidence, full_stats = generate_recommendation(
-        analysis_summary, forecast_price, expected_return, backtest_results_data
+        analysis_summary=analysis_summary,
+        forecast_details=forecast_details, # Pass the whole dict
+        garch_vol_forecast=None, # GARCH not implemented in CLI yet, pass None
+        backtest_results=backtest_results_data
     )
     click.secho(f"Recommendation: {recommendation}", fg="green" if recommendation == "BUY" else ("red" if recommendation == "SELL" else "yellow"))
     click.secho(f"Confidence: {confidence}", fg="green" if confidence == "High" else ("red" if confidence == "Low" else "yellow"))

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import os
 import logging
+from typing import Tuple, Optional # Added Tuple and Optional
 
 try:
     from sklearn.preprocessing import MinMaxScaler
