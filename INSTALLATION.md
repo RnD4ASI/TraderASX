@@ -16,8 +16,8 @@ Follow these steps to install the application:
 Open your terminal or command prompt and run the following command to clone the project repository:
 
 ```bash
-git clone <repository_url> # Replace <repository_url> with the actual URL of the repository
-cd <repository_directory_name> # Replace <repository_directory_name> with the name of the cloned folder
+git clone <repository-url>
+cd <repository-name>
 ```
 
 ### Step 2.2: Create and Activate a Virtual Environment
