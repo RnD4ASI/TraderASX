@@ -6,16 +6,38 @@ from functools import partial
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
+import sys # Add sys for path manipulation
 
 # Dynamically adjust import paths
-try:
-    from src import data_crawler, data_cleanser, analysis_engine, backtester, recommender
-    from src.main import parse_period_to_dates
-except ImportError:
-    import data_crawler, data_cleanser, analysis_engine, backtester, recommender
-    from main import parse_period_to_dates
+# Add the backend directory to sys.path to allow importing modules from backend.src
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend'))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+try:
+    # Assuming backend/src is now accessible via backend_path
+    from src import data_crawler, data_cleanser, analysis_engine, backtester, recommender
+    from src.main import parse_period_to_dates # This assumes main.py is importable from src
+except ImportError as e:
+    # Fallback or error if imports still fail
+    st.error(f"Failed to import backend modules: {e}. Check backend structure and paths.")
+    # Provide a more robust fallback or exit if critical modules fail
+    # For now, let's try a direct import assuming backend/src is in PYTHONPATH somehow or streamlit handles it.
+    # This part might need refinement based on how Streamlit apps are typically structured with sibling backend folders.
+    try:
+        # This assumes 'src' (meaning backend.src) is directly on the python path
+        # This is less robust than explicitly adding to sys.path.
+        from src import data_crawler, data_cleanser, analysis_engine, backtester, recommender
+        from src.main import parse_period_to_dates
+    except ImportError:
+        # If all else fails, this indicates a significant path issue.
+        # For development, we might use st.stop() or raise an error.
+        # For now, we'll keep the original attempt's structure for the error message.
+        import data_crawler, data_cleanser, analysis_engine, backtester, recommender
+        from main import parse_period_to_dates
+
+
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", "output")
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -128,7 +150,9 @@ def run_analysis_pipeline():
                 forecast_details['error'] = "LSTM forecast returned unexpected empty result."
         else: # Simple Momentum or ARIMA
             forecast_details = analysis_engine.get_forecast_and_return(
-                st.session_state.df_with_indicators, interval_code,
+                st.session_state.df_with_indicators,
+                ticker_symbol=ticker, # Added ticker_symbol argument
+                interval=interval_code,
                 model_type=selected_model_type_lower,
                 seasonal_arima=st.session_state.arima_seasonal if selected_model_type_lower == "arima" else False
             )

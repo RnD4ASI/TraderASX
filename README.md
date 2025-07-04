@@ -48,22 +48,22 @@ This system provides tools for analyzing ASX-listed stocks.
     pip install -r requirements.txt
     ```
 
-The main entry point for the CLI is `asx_analyzer/src/main.py`. From the project root directory, you can run it using:
+The main entry point for the CLI is `backend/src/main.py`. From the project root directory, you can run it using:
 
 ```bash
-python -m asx_analyzer.src.main [OPTIONS]
+python -m backend.src.main [OPTIONS]
 ```
 
-**Basic CLI Example:**
+**Basic CLI Example (using simple forecast model):**
 
 ```bash
-python -m asx_analyzer.src.main --ticker "BHP.AX" --period "1y" --interval "daily"
+python -m backend.src.main --ticker "BHP.AX" --period "1y" --interval "daily" --forecast-model "simple"
 ```
 
-**Example with Backtesting and Custom Windows:**
+**Example with Backtesting, Custom Windows, and ARIMA forecast:**
 
 ```bash
-python -m asx_analyzer.src.main -t "CBA.AX" -p "2y" -i "daily" -b --short-sma 20 --long-sma 50 --rsi-window 10 --initial-capital 5000
+python -m backend.src.main -t "CBA.AX" -p "2y" -i "daily" -b --short-sma 20 --long-sma 50 --rsi-window 10 --initial-capital 5000 --forecast-model "arima"
 ```
 
 **CLI Options:**
@@ -82,6 +82,9 @@ python -m asx_analyzer.src.main -t "CBA.AX" -p "2y" -i "daily" -b --short-sma 20
     *   Default for weekly: 40
 *   `--rsi-window INTEGER`: RSI window. (Default: 14)
 *   `--initial-capital FLOAT`: Initial capital for backtesting. (Default: 10000)
+*   `--forecast-model [simple|arima|lstm]`: Forecast model to use. (Default: 'simple')
+*   `--arima-seasonal`: Enable seasonality for ARIMA model (if selected). (Flag)
+
 
 **Output:**
 
@@ -98,13 +101,18 @@ Example plot filename: `TICKER_AX_interval_analysis_plot.png`
 
 ## Project Structure
 
-*   `data/`: Stores downloaded and processed data.
-*   `docs/`: Contains documentation files (e.g., methodology).
-*   `src/`: Source code for the application.
-*   `tests/`: Unit tests.
-*   `requirements.txt`: Python dependencies.
+*   `backend/`: Contains all backend logic.
+    *   `backend/src/`: Source code for the data processing, analysis, and CLI.
+    *   `backend/data/`: Stores downloaded and processed data.
+    *   `backend/output/`: Default location for generated plots and other output files.
+    *   `backend/models/`: Stores pre-trained LSTM models.
+*   `frontend/`: Contains the Streamlit web UI application.
+    *   `frontend/app.py`: Main Streamlit application file.
+*   `docs/`: Contains documentation files (e.g., `METHODOLOGY.md`).
+*   `tests/`: Unit tests (primarily for backend logic).
+*   `requirements.txt`: Python dependencies for both backend and frontend.
 *   `AGENTS.md`: Notes for AI agent development.
-*   `METHODOLOGY.md`: Detailed explanation of analysis methods.
+*   `README.md`: This file.
 
 ## Disclaimer
 

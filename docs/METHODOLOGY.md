@@ -1,6 +1,6 @@
 # Analysis and Recommendation Methodology
 
-This document outlines the methodologies used in the ASX Trading Analysis and Recommendation System.
+This document outlines the methodologies used in the ASX Trading Analysis and Recommendation System. The system is structured into a `backend` (handling data processing, analysis, CLI) and a `frontend` (Streamlit web UI).
 
 ## 1. Data Acquisition
 
@@ -84,8 +84,8 @@ The system supports multiple models for forecasting the price approximately 30 c
     *   The full sequence of forecasted values (can be plotted).
 *   **Considerations:**
     *   Performance is highly dependent on the quality of the pre-trained model, the amount of data used for training, and hyperparameter tuning.
-    *   If a pre-trained model for the ticker is not found in the `models/` directory, the LSTM forecast will fail.
-    *   Training LSTM models is computationally intensive and is a separate offline process.
+    *   If a pre-trained model for the ticker is not found in the `backend/models/` directory (relative to project root), the LSTM forecast will fail.
+    *   Training LSTM models is computationally intensive and is a separate offline process managed by `backend/src/lstm_model_trainer.py`.
 
 ### 4.4. Expected Return Calculation
 For all forecast models, the expected return is calculated as:

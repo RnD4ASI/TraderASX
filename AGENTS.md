@@ -2,48 +2,72 @@
 
 This file contains notes and conventions for AI agents working on this project.
 
+### Project Structure Overview:
+
+*   **`backend/`**: Houses all core logic, data, and the CLI.
+    *   `backend/src/`: Python modules for data crawling, cleansing, analysis, forecasting, backtesting, recommendations, and the CLI (`main.py`).
+    *   `backend/data/`: Default storage for raw and processed data.
+    *   `backend/output/`: Default storage for generated plots or other file outputs.
+    *   `backend/models/`: Stores pre-trained models, particularly for LSTM.
+*   **`frontend/`**: Contains the Streamlit web application.
+    *   `frontend/app.py`: The main UI application script.
+*   **`docs/`**: Project documentation.
+*   **`tests/`**: Unit tests, primarily targeting backend modules.
+*   **`requirements.txt`**: All Python dependencies for both backend and frontend.
+
 ### General Guidelines:
 
-1.  **Modularity:** Strive for modular code. Each major functionality (data crawling, cleansing, analysis, backtesting, recommendation, UI) should be in its own Python module within the `src/` directory.
-2.  **Error Handling:** Implement robust error handling, especially for external API calls (e.g., `yfinance`) and file operations. Provide informative error messages to the user.
-3.  **Configuration:** For now, configurations like file paths or API keys (if any in the future) can be managed as constants within relevant modules. For more complex configurations, consider a `config.py` or environment variables.
+1.  **Modularity:**
+    *   Backend: Each major functionality (data_crawler, data_cleanser, analysis_engine, lstm_model_trainer, backtester, recommender) is a separate module in `backend/src/`.
+    *   Frontend: `frontend/app.py` handles UI, calling backend services.
+2.  **Error Handling:** Implement robust error handling, especially for external API calls (e.g., `yfinance`), file operations, and model loading/prediction. Provide informative error messages.
+3.  **Configuration:** File paths (like `MODELS_DIR`, `DATA_DIR`) are generally constructed using `os.path.join` relative to the script locations. More complex configurations could use a dedicated config file if needed.
 4.  **Data Storage:**
-    *   Raw downloaded data should be stored in the `data/raw/` subdirectory (e.g., `data/raw/TICKER_prices.csv`, `data/raw/TICKER_info.json`).
-    *   Processed/cleansed data can be stored in `data/processed/` if intermediate steps are saved.
-    *   Filenames should be descriptive, including ticker, data type, and interval if applicable.
-5.  **Logging:** Implement basic logging (using the `logging` module) for debugging and tracking application flow, especially in more complex functions.
-6.  **Docstrings and Comments:** Write clear docstrings for all functions and classes, explaining their purpose, arguments, and return values. Use comments for complex logic.
-7.  **Testing:** While full TDD might not be enforced for all initial exploratory code, aim to write unit tests for core logic, especially in data processing and analysis functions. Store tests in the `tests/` directory.
-8.  **Python Version:** Assume Python 3.8+ for compatibility with modern libraries.
-9.  **Dependencies:** Keep `requirements.txt` updated with all necessary packages.
+    *   Raw data: `backend/data/raw/`
+    *   Processed data: `backend/data/processed/`
+    *   LSTM models: `backend/models/` (e.g., `lstm_model_TICKER_AX.keras`, `lstm_scaler_TICKER_AX.joblib`)
+    *   Filenames should be descriptive.
+5.  **Logging:** Use the `logging` module for tracking application flow and errors, especially in backend processes.
+6.  **Docstrings and Comments:** Maintain clear docstrings for functions/classes and comments for complex logic.
+7.  **Testing:** Aim for unit tests for core backend logic.
+8.  **Python Version:** Python 3.8+.
+9.  **Dependencies:** Keep `requirements.txt` updated. Key libraries include `pandas`, `numpy`, `yfinance`, `matplotlib`, `click`, `streamlit`, `plotly`, `statsmodels`, `pmdarima`, `arch`, `tensorflow`, `scikit-learn`.
 
-### Specific Module Notes:
+### Specific Module Notes (Backend - `backend/src/`):
 
-*   **`src/data_crawler.py`:**
-    *   Ensure ASX tickers are correctly formatted (e.g., "BHP.AX").
-    *   Handle API rate limits if they become an issue (though `yfinance` is generally robust for typical use).
-    *   Clearly define the structure for saved data (CSV for tabular, JSON for dict-like info).
-*   **`src/data_cleanser.py`:**
-    *   Document cleansing steps taken.
-    *   Be clear about how missing data (NaNs) is handled (e.g., fill, drop, interpolation).
-*   **`src/analysis_engine.py`:**
-    *   Ensure calculations for indicators (MAs, RSI) are standard.
-    *   The 30-day forecast needs to be clearly defined. It's a simplification, so its limitations should be understood.
-*   **`src/backtester.py`:**
-    *   The 30-day holding rule is crucial. Trades should not be closed before this period unless a stop-loss is explicitly defined (not in initial scope).
-*   **`src/recommender.py`:**
-    *   The rules for BUY/HOLD/SELL should be transparent and documented in `METHODOLOGY.md`.
-    *   Confidence level will be heuristic initially.
-*   **`src/main.py` (CLI):**
-    *   Use a library like `click` or `argparse` for clean command-line arguments.
-    *   Provide clear output to the user.
-    *   For plots, save them to a file and tell the user where to find them.
+*   **`data_crawler.py`:** Handles `yfinance` interaction.
+*   **`data_cleanser.py`:** Standard data cleaning.
+*   **`analysis_engine.py`:**
+    *   Calculates technical indicators (SMAs, RSI).
+    *   Orchestrates forecasting via `get_forecast_and_return`, supporting "simple" momentum, "arima", and "lstm" models.
+    *   Includes GARCH volatility forecasting.
+*   **`lstm_model_trainer.py`:**
+    *   Handles training, saving, and loading of LSTM models and their scalers. Models are ticker-specific.
+    *   Training is an offline process; the application uses pre-trained models.
+    *   Ensure `tensorflow` and `scikit-learn` are correctly installed for this.
+*   **`backtester.py`:** Evaluates a predefined trading strategy (currently SMA/RSI based) with a 30-day hold rule.
+*   **`recommender.py`:**
+    *   Generates BUY/HOLD/SELL recommendations based on technicals, forecast details (from any model), GARCH output, and backtest results.
+    *   Refer to `docs/METHODOLOGY.md` for detailed logic.
+*   **`main.py` (CLI):**
+    *   Uses `click` for arguments.
+    *   Allows selection of forecast model (`--forecast-model`).
 
-### Phase 2 (Web UI) Considerations (Future):
+### Frontend Notes (`frontend/app.py`):
 
-*   When moving to a web UI (Streamlit/Dash), ensure the backend logic (crawling, analysis, etc.) remains decoupled from the UI code as much as possible. The UI should primarily call functions from the core modules.
-*   Think about how user inputs will be handled in the web interface.
-*   Interactive plotting will be a key feature.
+*   Uses Streamlit.
+*   Calls functions from backend modules (ensure `sys.path` is adjusted correctly to find `backend.src`).
+*   Provides UI for selecting forecast models, parameters, and viewing results including interactive plots.
+
+### Key Workflow for Analysis:
+
+1.  Data Crawling (`data_crawler`)
+2.  Data Cleansing (`data_cleanser`)
+3.  Technical Indicator Calculation (`analysis_engine.add_technical_indicators`)
+4.  Forecasting (selected model via `analysis_engine.get_forecast_and_return` which may call `get_arima_forecast` or `get_lstm_forecast`)
+5.  GARCH Volatility (optional, via `analysis_engine.get_garch_volatility_forecast` - primarily from UI)
+6.  Backtesting (optional, via `backtester.run_backtest`)
+7.  Recommendation (`recommender.generate_recommendation` using inputs from steps 3-6)
 
 By following these guidelines, we can build a more maintainable and scalable application.tool_code
 create_file_with_block
